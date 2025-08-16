@@ -26,7 +26,7 @@ A lightweight scoring and visualization web application for dataset annotation.
 1. Clone or download this repository.  
    克隆或下载本仓库。  
    ```bash
-   git clone https://github.com/<your-username>/<repo-name>.git
+   git clone https://github.com/Karcen/RLHF-scoring-web.git
 2. Open `index.html` directly in a browser.
    直接在浏览器中打开 `index.html` 即可运行。
 3. Start scoring and export your results.
