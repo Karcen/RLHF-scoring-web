@@ -53,3 +53,106 @@ A lightweight scoring and visualization web application for dataset annotation.
 
 MIT License. Feel free to use and modify.
 MIT 许可证，欢迎自由使用与修改。
+
+---
+
+
+# RLHF-MultiRound-Scoring-Web (基于 React 的多轮图文 RLHF 数据集打分网页)
+
+A single-file React-based annotation tool for multi-round dialogue with images.  
+一个基于 React 的单文件网页工具，用于对 **多轮图文对话数据集 (multi-round multimodal dialogue dataset)** 进行 RLHF (Reinforcement Learning from Human Feedback) 打分。  
+
+---
+
+## ✨ Features / 功能特点
+- **Multi-round dialogue annotation / 多轮对话标注**  
+  Supports structured evaluation of user-assistant multi-turn dialogues with associated images.  
+  支持对带图片的多轮对话进行结构化评价。  
+
+- **JSON-driven workflow / JSON 驱动**  
+  Input format is standardized JSON (see example below).  
+  输入格式为标准化 JSON（见下方示例）。  
+
+- **Scoring modes / 多种打分方式**  
+  - Continuous scoring (无极打分)：可细粒度打分，支持 -1 表示“有害”。  
+  - Single-choice scoring (单选打分)：分类式打分，-1 用红色高亮。  
+
+- **Self-contained React file / 单文件 React 实现**  
+  Entire app is in one `.jsx` file, convenient for quick deployment and modification.  
+  整个应用封装在一个 `.jsx` 文件中，方便快速部署与修改。  
+
+- **Export results / 结果导出**  
+  Supports exporting scoring results (JSON/CSV).  
+  支持导出标注结果（JSON/CSV）。  
+
+---
+
+## 📂 Expected Data Format / 期望数据格式
+Each sample consists of an ID, metadata, and multiple dialogue rounds.  
+每个样本由 ID、元信息和多轮对话组成。  
+
+```json
+[
+  {
+    "id": "sample-001",
+    "meta": {"source": "paperX"},
+    "rounds": [
+      {"user": "问题1", "assistant": "回答1", "image": "Figures/img_001.png"},
+      {"user": "问题2", "assistant": "回答2", "image": "Figures/img_001_b.png"}
+    ]
+  }
+]
+````
+
+* `id`: unique identifier 样本唯一 ID
+* `meta`: metadata 元信息（可选，来源/标签等）
+* `rounds`: dialogue rounds 对话轮次
+
+  * `user`: 用户输入
+  * `assistant`: 模型回答
+  * `image`: 可选图片路径
+
+---
+
+## 🚀 Usage / 使用方法
+
+1. Clone this repository.
+   克隆仓库：
+
+   ```bash
+   git clone https://github.com/<your-username>/<repo-name>.git
+   ```
+
+2. Open the `.jsx` file in a React environment (e.g., Vite, Create React App).
+   在 React 环境中运行 `.jsx` 文件（如 Vite 或 Create React App）。
+
+   Example (using Vite):
+
+   ```bash
+   npm create vite@latest my-annotator --template react
+   cd my-annotator
+   npm install
+   # replace App.jsx with the provided RLHF scoring .jsx file
+   npm run dev
+   ```
+
+3. Load your dataset JSON and start annotation.
+   加载数据集 JSON，开始打分。
+
+4. Export results with one click.
+   一键导出标注结果。
+
+---
+
+## 📌 Roadmap / 未来计划
+
+* [ ] Add visualization report (charts, summaries).
+* [ ] Support batch dataset import/export.
+* [ ] Multi-user deployment with server backend.
+
+---
+
+## 📜 License / 许可证
+
+MIT License.
+自由使用与修改。
