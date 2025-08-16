@@ -1,0 +1,1441 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RLHF多轮图文数据集打分系统</title>
+    <!-- 引入外部资源 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+    
+    <!-- 配置Tailwind自定义主题 -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#165DFF',
+                        secondary: '#36CFC9',
+                        danger: '#F53F3F',
+                        warning: '#FF7D00',
+                        success: '#00B42A',
+                        neutral: {
+                            100: '#F2F3F5',
+                            200: '#E5E6EB',
+                            300: '#C9CDD4',
+                            400: '#86909C',
+                            500: '#4E5969',
+                            600: '#272E3B',
+                            700: '#1D2129',
+                        }
+                    },
+                    fontFamily: {
+                        inter: ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    
+    <!-- 自定义工具类 -->
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .scrollbar-hide {
+                -ms-overflow-style: none;
+                scrollbar-width: none;
+            }
+            .scrollbar-hide::-webkit-scrollbar {
+                display: none;
+            }
+            .text-shadow {
+                text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+            .transition-all-300 {
+                transition: all 300ms ease-in-out;
+            }
+            .slider-pausing {
+                cursor: not-allowed;
+                opacity: 0.7;
+            }
+            .radio-pausing {
+                pointer-events: none;
+                opacity: 0.7;
+            }
+        }
+    </style>
+    
+    <style>
+        /* 导入字体 */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        /* 基础样式 */
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+        }
+        
+        /* 滑块样式 */
+        .slider {
+            -webkit-appearance: none;
+            height: 8px;
+            border-radius: 4px;
+            background: #e5e6eb;
+            outline: none;
+        }
+        
+        .slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #165DFF;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        
+        .slider::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+            box-shadow: 0 0 0 8px rgba(22, 93, 255, 0.1);
+        }
+        
+        /* 动画效果 */
+        .fade-in {
+            animation: fadeIn 0.5s ease-in-out;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        
+        /* 分数变化动画 */
+        .score-change {
+            animation: scoreChange 0.5s ease-in-out;
+        }
+        
+        @keyframes scoreChange {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.3); }
+            100% { transform: scale(1); }
+        }
+        
+        /* 关键分数高亮 */
+        .key-score {
+            animation: highlightKeyScore 1s ease-in-out;
+        }
+        
+        @keyframes highlightKeyScore {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(245, 63, 63, 0); }
+            50% { box-shadow: 0 0 0 4px rgba(245, 63, 63, 0.3); }
+        }
+    </style>
+</head>
+<body class="bg-neutral-100 text-neutral-700 font-inter min-h-screen flex flex-col">
+    <!-- 顶部导航栏 -->
+    <header class="bg-white shadow-md z-10 sticky top-0">
+        <div class="container mx-auto px-4 py-3 flex justify-between items-center">
+            <div class="flex items-center space-x-3">
+                <i class="fa fa-bar-chart text-primary text-2xl"></i>
+                <h1 class="text-xl md:text-2xl font-bold text-neutral-700">RLHF多轮图文数据集打分系统</h1>
+            </div>
+            
+            <div class="flex items-center space-x-4">
+                <button id="helpBtn" class="text-neutral-500 hover:text-primary transition-all-300">
+                    <i class="fa fa-question-circle mr-1"></i> 帮助
+                </button>
+                <button id="exportBtn" class="bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-lg shadow transition-all-300 flex items-center">
+                    <i class="fa fa-download mr-2"></i> 导出结果
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- 主内容区 -->
+    <main class="flex-grow container mx-auto px-4 py-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <!-- 左侧：数据列表 -->
+        <section class="lg:col-span-3 bg-white rounded-xl shadow-md p-4 h-[calc(100vh-130px)] flex flex-col">
+            <div class="mb-4 flex justify-between items-center">
+                <h2 class="text-lg font-semibold text-neutral-700">数据集列表</h2>
+                <label class="flex items-center text-sm text-neutral-500 bg-neutral-100 hover:bg-neutral-200 px-3 py-1.5 rounded-lg cursor-pointer transition-all-300">
+                    <i class="fa fa-upload mr-2"></i> 加载数据
+                    <input type="file" id="fileUpload" accept=".json" class="hidden">
+                </label>
+            </div>
+            
+            <div id="datasetStatus" class="mb-4 p-3 bg-neutral-100 rounded-lg text-sm text-neutral-500 hidden">
+                <div class="flex items-center">
+                    <i class="fa fa-info-circle text-primary mr-2"></i>
+                    <span>未加载数据，请上传JSON文件</span>
+                </div>
+            </div>
+            
+            <div id="datasetStats" class="mb-4 p-3 bg-neutral-100 rounded-lg hidden">
+                <div class="text-sm text-neutral-500 mb-2">数据集统计</div>
+                <div class="grid grid-cols-2 gap-2 text-xs">
+                    <div class="bg-white p-2 rounded shadow-sm">
+                        <div class="text-neutral-400">总样本数</div>
+                        <div id="totalItems" class="font-semibold text-neutral-700">0</div>
+                    </div>
+                    <div class="bg-white p-2 rounded shadow-sm">
+                        <div class="text-neutral-400">已完成</div>
+                        <div id="completedItems" class="font-semibold text-success">0</div>
+                    </div>
+                    <div class="bg-white p-2 rounded shadow-sm">
+                        <div class="text-neutral-400">进行中</div>
+                        <div id="inProgressItems" class="font-semibold text-warning">0</div>
+                    </div>
+                    <div class="bg-white p-2 rounded shadow-sm">
+                        <div class="text-neutral-400">未开始</div>
+                        <div id="pendingItems" class="font-semibold text-neutral-500">0</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="relative flex-grow overflow-hidden">
+                <div id="itemsList" class="absolute inset-0 overflow-y-auto scrollbar-hide">
+                    <!-- 数据项列表将通过JS动态生成 -->
+                    <div class="text-center text-neutral-400 py-8">
+                        <i class="fa fa-file-text-o text-3xl mb-2"></i>
+                        <p>请上传JSON数据文件</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <!-- 中间：内容展示区 -->
+        <section class="lg:col-span-5 bg-white rounded-xl shadow-md p-4 h-[calc(100vh-130px)] flex flex-col">
+            <div class="mb-4 flex justify-between items-center">
+                <h2 class="text-lg font-semibold text-neutral-700">内容展示</h2>
+                <div class="flex items-center space-x-2">
+                    <span id="currentItemInfo" class="text-sm text-neutral-500">未选择数据</span>
+                    <span id="itemProgress" class="text-xs px-2 py-1 bg-neutral-100 rounded-full text-neutral-500 hidden">
+                        完成度: <span id="progressPercent">0%</span>
+                    </span>
+                </div>
+            </div>
+            
+            <div id="contentDisplay" class="flex-grow overflow-y-auto scrollbar-hide p-2">
+                <!-- 初始状态 -->
+                <div class="flex flex-col items-center justify-center h-full text-neutral-400">
+                    <i class="fa fa-image text-5xl mb-4"></i>
+                    <p class="text-center max-w-md">请从左侧列表选择一个数据项进行查看和打分</p>
+                </div>
+                
+                <!-- 内容将通过JS动态生成 -->
+            </div>
+            
+            <div class="mt-4 pt-4 border-t border-neutral-200 flex justify-between">
+                <button id="prevItemBtn" class="px-4 py-2 border border-neutral-300 rounded-lg text-neutral-600 hover:bg-neutral-100 transition-all-300 flex items-center disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                    <i class="fa fa-arrow-left mr-2"></i> 上一个
+                </button>
+                <button id="nextItemBtn" class="px-4 py-2 border border-neutral-300 rounded-lg text-neutral-600 hover:bg-neutral-100 transition-all-300 flex items-center disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                    下一个 <i class="fa fa-arrow-right ml-2"></i>
+                </button>
+            </div>
+        </section>
+        
+        <!-- 右侧：打分面板 -->
+        <section class="lg:col-span-4 bg-white rounded-xl shadow-md p-4 h-[calc(100vh-130px)] flex flex-col">
+            <div class="mb-4 flex justify-between items-center">
+                <h2 class="text-lg font-semibold text-neutral-700">打分面板</h2>
+                <div class="flex space-x-2">
+                    <button id="scoringModeBtn" class="text-sm px-3 py-1.5 bg-primary/10 text-primary rounded-lg flex items-center">
+                        <i class="fa fa-sliders mr-1"></i>
+                        <span id="currentScoringMode">无极分数</span>
+                    </button>
+                    <button id="saveScoresBtn" class="text-sm px-3 py-1.5 bg-success text-white rounded-lg flex items-center disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                        <i class="fa fa-save mr-1"></i> 保存
+                    </button>
+                </div>
+            </div>
+            
+            <div id="scoringPanel" class="flex-grow overflow-y-auto scrollbar-hide">
+                <!-- 未选择数据时的状态 -->
+                <div class="flex flex-col items-center justify-center h-full text-neutral-400">
+                    <i class="fa fa-star-o text-5xl mb-4"></i>
+                    <p class="text-center max-w-md">请从左侧列表选择一个数据项进行打分</p>
+                </div>
+                
+                <!-- 打分内容将通过JS动态生成 -->
+            </div>
+            
+            <!-- 打分说明 -->
+            <div class="mt-4 pt-4 border-t border-neutral-200">
+                <div class="text-sm text-neutral-500 mb-2">
+                    <i class="fa fa-info-circle mr-1"></i> 打分说明
+                </div>
+                <div class="text-xs text-neutral-500 space-y-1 bg-neutral-50 p-3 rounded-lg">
+                    <p><span class="text-danger">-1</span>: 回答是有害的</p>
+                    <p><span class="text-neutral-500">0</span>: 不符合要求</p>
+                    <p><span class="text-warning">1-2</span>: 部分符合要求</p>
+                    <p><span class="text-success">3</span>: 完全符合要求</p>
+                    <p>无极分数范围: <span class="text-neutral-500">-1 到 100</span></p>
+                </div>
+            </div>
+        </section>
+    </main>
+    
+    <!-- 可视化模态框 -->
+    <div id="visualizationModal" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center hidden opacity-0 transition-all duration-300">
+        <div class="bg-white rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col transform scale-95 transition-all duration-300">
+            <div class="p-4 border-b border-neutral-200 flex justify-between items-center">
+                <h3 class="text-lg font-semibold text-neutral-700">数据集统计可视化</h3>
+                <button id="closeVisualizationBtn" class="text-neutral-500 hover:text-neutral-700">
+                    <i class="fa fa-times"></i>
+                </button>
+            </div>
+            
+            <div class="flex-grow p-4 overflow-y-auto">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="bg-neutral-50 p-4 rounded-lg shadow-sm">
+                        <h4 class="text-sm font-medium text-neutral-600 mb-3">完成情况分布</h4>
+                        <div class="h-64">
+                            <canvas id="completionChart"></canvas>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-neutral-50 p-4 rounded-lg shadow-sm">
+                        <h4 class="text-sm font-medium text-neutral-600 mb-3">分数分布</h4>
+                        <div class="h-64">
+                            <canvas id="scoresDistributionChart"></canvas>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-neutral-50 p-4 rounded-lg shadow-sm md:col-span-2">
+                        <h4 class="text-sm font-medium text-neutral-600 mb-3">各评判标准平均分</h4>
+                        <div class="h-64">
+                            <canvas id="criteriaScoresChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="p-4 border-t border-neutral-200 flex justify-end">
+                <button id="exportReportBtn" class="bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-lg shadow transition-all-300 flex items-center">
+                    <i class="fa fa-file-pdf-o mr-2"></i> 导出报告
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 帮助模态框 -->
+    <div id="helpModal" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center hidden opacity-0 transition-all duration-300">
+        <div class="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col transform scale-95 transition-all duration-300">
+            <div class="p-4 border-b border-neutral-200 flex justify-between items-center">
+                <h3 class="text-lg font-semibold text-neutral-700">使用帮助</h3>
+                <button id="closeHelpBtn" class="text-neutral-500 hover:text-neutral-700">
+                    <i class="fa fa-times"></i>
+                </button>
+            </div>
+            
+            <div class="flex-grow p-4 overflow-y-auto">
+                <div class="space-y-4">
+                    <div>
+                        <h4 class="font-medium text-neutral-700 mb-2">1. 数据加载</h4>
+                        <p class="text-sm text-neutral-600">点击左侧面板的"加载数据"按钮，上传包含图文语料的JSON文件。图片应存储在与HTML文件同级的"Figures"文件夹中。</p>
+                    </div>
+                    
+                    <div>
+                        <h4 class="font-medium text-neutral-700 mb-2">2. 内容浏览</h4>
+                        <p class="text-sm text-neutral-600">在左侧列表中选择数据项，中间面板将显示对应的图文内容。使用底部的"上一个"和"下一个"按钮切换数据项。</p>
+                    </div>
+                    
+                    <div>
+                        <h4 class="font-medium text-neutral-700 mb-2">3. 打分操作</h4>
+                        <p class="text-sm text-neutral-600">右侧面板提供两种打分模式：</p>
+                        <ul class="text-sm text-neutral-600 list-disc ml-5 mt-1 space-y-1">
+                            <li>无极分数：通过滑块选择-1到100之间的分数</li>
+                            <li>单选分数：选择-1、0、1、2、3中的一个（-1表示回答有害）</li>
+                        </ul>
+                        <p class="text-sm text-neutral-600 mt-1">打分完成后点击"保存"按钮保存结果。</p>
+                    </div>
+                    
+                    <div>
+                        <h4 class="font-medium text-neutral-700 mb-2">4. 数据导出</h4>
+                        <p class="text-sm text-neutral-600">点击顶部导航栏的"导出结果"按钮可导出JSON格式的打分结果。点击可视化面板中的"导出报告"可生成包含统计图表的PDF报告。</p>
+                    </div>
+                    
+                    <div>
+                        <h4 class="font-medium text-neutral-700 mb-2">5. 评判标准说明</h4>
+                        <div class="bg-neutral-50 p-3 rounded-lg text-sm text-neutral-600 space-y-2">
+                            <div>
+                                <span class="font-medium">评判标准1：</span>
+                                <span>相关性 - 回答与问题的相关程度</span>
+                            </div>
+                            <div>
+                                <span class="font-medium">评判标准2：</span>
+                                <span>准确性 - 回答内容的准确程度</span>
+                            </div>
+                            <div>
+                                <span class="font-medium">评判标准3：</span>
+                                <span>完整性 - 回答是否完整覆盖问题要点</span>
+                            </div>
+                            <div>
+                                <span class="font-medium">评判标准4：</span>
+                                <span>清晰度 - 回答的表达是否清晰易懂</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="p-4 border-t border-neutral-200 flex justify-end">
+                <button id="gotItHelpBtn" class="bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-lg shadow transition-all-300">
+                    明白了
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 导出选项模态框 -->
+    <div id="exportModal" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center hidden opacity-0 transition-all duration-300">
+        <div class="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col transform scale-95 transition-all duration-300">
+            <div class="p-4 border-b border-neutral-200 flex justify-between items-center">
+                <h3 class="text-lg font-semibold text-neutral-700">导出选项</h3>
+                <button id="closeExportBtn" class="text-neutral-500 hover:text-neutral-700">
+                    <i class="fa fa-times"></i>
+                </button>
+            </div>
+            
+            <div class="p-6">
+                <div class="space-y-4">
+                    <div class="flex items-center justify-between p-3 border border-neutral-200 rounded-lg hover:bg-neutral-50 cursor-pointer transition-all-300" id="exportAllOption">
+                        <div class="flex items-center">
+                            <i class="fa fa-file-code-o text-primary text-xl mr-3"></i>
+                            <div>
+                                <div class="font-medium text-neutral-700">全部数据</div>
+                                <div class="text-sm text-neutral-500">导出所有数据及打分结果</div>
+                            </div>
+                        </div>
+                        <i class="fa fa-chevron-right text-neutral-400"></i>
+                    </div>
+                    
+                    <div class="flex items-center justify-between p-3 border border-neutral-200 rounded-lg hover:bg-neutral-50 cursor-pointer transition-all-300" id="exportCompletedOption">
+                        <div class="flex items-center">
+                            <i class="fa fa-check-square-o text-success text-xl mr-3"></i>
+                            <div>
+                                <div class="font-medium text-neutral-700">已完成数据</div>
+                                <div class="text-sm text-neutral-500">仅导出已完成打分的数据</div>
+                            </div>
+                        </div>
+                        <i class="fa fa-chevron-right text-neutral-400"></i>
+                    </div>
+                    
+                    <div class="flex items-center justify-between p-3 border border-neutral-200 rounded-lg hover:bg-neutral-50 cursor-pointer transition-all-300" id="viewStatsOption">
+                        <div class="flex items-center">
+                            <i class="fa fa-bar-chart text-warning text-xl mr-3"></i>
+                            <div>
+                                <div class="font-medium text-neutral-700">统计可视化</div>
+                                <div class="text-sm text-neutral-500">查看数据集打分统计图表</div>
+                            </div>
+                        </div>
+                        <i class="fa fa-chevron-right text-neutral-400"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 通知提示 -->
+    <div id="notification" class="fixed bottom-4 right-4 bg-white shadow-lg rounded-lg p-4 transform translate-y-20 opacity-0 transition-all duration-300 flex items-center max-w-sm z-50">
+        <i id="notificationIcon" class="fa fa-check-circle text-success text-xl mr-3"></i>
+        <div>
+            <div id="notificationTitle" class="font-medium text-neutral-700"></div>
+            <div id="notificationMessage" class="text-sm text-neutral-500"></div>
+        </div>
+        <button id="closeNotification" class="ml-4 text-neutral-400 hover:text-neutral-600">
+            <i class="fa fa-times"></i>
+        </button>
+    </div>
+
+    <script>
+        // 全局变量
+        let dataset = [];
+        let results = [];
+        let currentItemIndex = -1;
+        let scoringMode = 'slider'; // 'slider' 或 'radio'
+        const criteria = [
+            { id: 1, name: '评判标准1', description: '相关性 - 回答与问题的相关程度' },
+            { id: 2, name: '评判标准2', description: '准确性 - 回答内容的准确程度' },
+            { id: 3, name: '评判标准3', description: '完整性 - 回答是否完整覆盖问题要点' },
+            { id: 4, name: '评判标准4', description: '清晰度 - 回答的表达是否清晰易懂' }
+        ];
+        
+        // DOM元素
+        const fileUpload = document.getElementById('fileUpload');
+        const itemsList = document.getElementById('itemsList');
+        const contentDisplay = document.getElementById('contentDisplay');
+        const scoringPanel = document.getElementById('scoringPanel');
+        const prevItemBtn = document.getElementById('prevItemBtn');
+        const nextItemBtn = document.getElementById('nextItemBtn');
+        const currentItemInfo = document.getElementById('currentItemInfo');
+        const itemProgress = document.getElementById('itemProgress');
+        const progressPercent = document.getElementById('progressPercent');
+        const saveScoresBtn = document.getElementById('saveScoresBtn');
+        const scoringModeBtn = document.getElementById('scoringModeBtn');
+        const currentScoringMode = document.getElementById('currentScoringMode');
+        const exportBtn = document.getElementById('exportBtn');
+        const exportModal = document.getElementById('exportModal');
+        const closeExportBtn = document.getElementById('closeExportBtn');
+        const exportAllOption = document.getElementById('exportAllOption');
+        const exportCompletedOption = document.getElementById('exportCompletedOption');
+        const viewStatsOption = document.getElementById('viewStatsOption');
+        const visualizationModal = document.getElementById('visualizationModal');
+        const closeVisualizationBtn = document.getElementById('closeVisualizationBtn');
+        const exportReportBtn = document.getElementById('exportReportBtn');
+        const helpBtn = document.getElementById('helpBtn');
+        const helpModal = document.getElementById('helpModal');
+        const closeHelpBtn = document.getElementById('closeHelpBtn');
+        const gotItHelpBtn = document.getElementById('gotItHelpBtn');
+        const datasetStatus = document.getElementById('datasetStatus');
+        const datasetStats = document.getElementById('datasetStats');
+        const totalItems = document.getElementById('totalItems');
+        const completedItems = document.getElementById('completedItems');
+        const inProgressItems = document.getElementById('inProgressItems');
+        const pendingItems = document.getElementById('pendingItems');
+        const notification = document.getElementById('notification');
+        const notificationIcon = document.getElementById('notificationIcon');
+        const notificationTitle = document.getElementById('notificationTitle');
+        const notificationMessage = document.getElementById('notificationMessage');
+        const closeNotification = document.getElementById('closeNotification');
+        
+        // 初始化图表
+        let completionChart, scoresDistributionChart, criteriaScoresChart;
+        
+        // 事件监听
+        fileUpload.addEventListener('change', handleFileUpload);
+        prevItemBtn.addEventListener('click', goToPreviousItem);
+        nextItemBtn.addEventListener('click', goToNextItem);
+        saveScoresBtn.addEventListener('click', saveScores);
+        scoringModeBtn.addEventListener('click', toggleScoringMode);
+        exportBtn.addEventListener('click', openExportModal);
+        closeExportBtn.addEventListener('click', closeExportModal);
+        exportAllOption.addEventListener('click', exportAllData);
+        exportCompletedOption.addEventListener('click', exportCompletedData);
+        viewStatsOption.addEventListener('click', openVisualizationModal);
+        closeVisualizationBtn.addEventListener('click', closeVisualizationModal);
+        exportReportBtn.addEventListener('click', exportReport);
+        helpBtn.addEventListener('click', openHelpModal);
+        closeHelpBtn.addEventListener('click', closeHelpModal);
+        gotItHelpBtn.addEventListener('click', closeHelpModal);
+        closeNotification.addEventListener('click', hideNotification);
+        
+        // 处理文件上传
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            if (file.type !== 'application/json' && !file.name.endsWith('.json')) {
+                showNotification('错误', '请上传JSON格式的文件', 'error');
+                return;
+            }
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    if (Array.isArray(data) && data.length > 0) {
+                        dataset = data;
+                        initializeResults();
+                        renderItemsList();
+                        updateDatasetStats();
+                        datasetStatus.classList.add('hidden');
+                        datasetStats.classList.remove('hidden');
+                        showNotification('成功', `已加载 ${dataset.length} 条数据`, 'success');
+                        
+                        // 自动选择第一个数据项
+                        if (dataset.length > 0) {
+                            selectItem(0);
+                        }
+                    } else {
+                        showNotification('错误', 'JSON文件格式不正确，应包含一个数组', 'error');
+                    }
+                } catch (error) {
+                    showNotification('错误', '解析JSON文件失败', 'error');
+                    console.error('JSON解析错误:', error);
+                }
+            };
+            reader.readAsText(file);
+        }
+        
+        // 初始化结果数组
+        function initializeResults() {
+            results = dataset.map(item => ({
+                id: item.id || Date.now() + Math.random(),
+                overallScores: criteria.reduce((acc, c) => {
+                    acc[c.id] = null;  // 初始值设为null，不默认选中-1
+                    return acc;
+                }, {}),
+                turnScores: item.turns ? item.turns.map(() => 
+                    criteria.reduce((acc, c) => {
+                        acc[c.id] = null;  // 初始值设为null，不默认选中-1
+                        return acc;
+                    }, {})
+                ) : [],
+                completed: false
+            }));
+        }
+        
+        // 渲染数据项列表
+        function renderItemsList() {
+            itemsList.innerHTML = '';
+            
+            dataset.forEach((item, index) => {
+                const result = results[index];
+                const itemElement = document.createElement('div');
+                itemElement.className = `p-3 border-b border-neutral-100 hover:bg-neutral-50 cursor-pointer transition-all-300 ${currentItemIndex === index ? 'bg-primary/10 border-l-4 border-primary' : ''}`;
+                itemElement.innerHTML = `
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <div class="font-medium text-neutral-700">${item.id || `数据项 ${index + 1}`}</div>
+                            <div class="text-xs text-neutral-500 mt-1 line-clamp-1">${item.context || '无上下文信息'}</div>
+                        </div>
+                        <span class="text-xs px-2 py-0.5 rounded-full ${result.completed ? 'bg-success/20 text-success' : result.overallScores[1] !== null ? 'bg-warning/20 text-warning' : 'bg-neutral-200 text-neutral-500'}">
+                            ${result.completed ? '已完成' : result.overallScores[1] !== null ? '进行中' : '未开始'}
+                        </span>
+                    </div>
+                `;
+                
+                itemElement.addEventListener('click', () => selectItem(index));
+                itemsList.appendChild(itemElement);
+            });
+        }
+        
+        // 选择数据项
+        function selectItem(index) {
+            if (index < 0 || index >= dataset.length) return;
+            
+            currentItemIndex = index;
+            renderContent();
+            renderScoringPanel();
+            updateNavigationButtons();
+            updateItemInfo();
+            renderItemsList(); // 更新列表选中状态
+            
+            // 启用保存按钮
+            saveScoresBtn.disabled = false;
+        }
+        
+        // 渲染内容展示区
+        function renderContent() {
+            const item = dataset[currentItemIndex];
+            if (!item) return;
+            
+            let contentHTML = `
+                <div class="space-y-6">
+                    <div class="bg-neutral-50 p-4 rounded-lg">
+                        <h3 class="text-neutral-700 font-medium mb-2">上下文信息</h3>
+                        <p class="text-neutral-600 text-sm">${item.context || '无上下文信息'}</p>
+                    </div>
+            `;
+            
+            // 图片展示
+            if (item.image) {
+                contentHTML += `
+                    <div class="bg-neutral-50 p-4 rounded-lg">
+                        <h3 class="text-neutral-700 font-medium mb-2">相关图片</h3>
+                        <div class="flex justify-center">
+                            <img src="Figures/${item.image}" alt="相关图片" class="max-w-full max-h-64 object-contain rounded shadow-sm hover:shadow-md transition-all-300">
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // 多轮对话展示
+            if (item.turns && item.turns.length > 0) {
+                contentHTML += `
+                    <div>
+                        <h3 class="text-neutral-700 font-medium mb-3">多轮对话</h3>
+                        <div class="space-y-4">
+                `;
+                
+                item.turns.forEach((turn, turnIndex) => {
+                    contentHTML += `
+                        <div class="border border-neutral-200 rounded-lg overflow-hidden">
+                            <div class="bg-neutral-50 px-4 py-2 border-b border-neutral-200 font-medium text-sm text-neutral-700">
+                                轮次 ${turnIndex + 1}
+                            </div>
+                            <div class="p-4">
+                                <div class="mb-3">
+                                    <div class="text-xs text-neutral-500 mb-1">问题</div>
+                                    <div class="text-neutral-700 text-sm">${turn.question}</div>
+                                </div>
+                                <div>
+                                    <div class="text-xs text-neutral-500 mb-1">回答</div>
+                                    <div class="text-neutral-700 text-sm">${turn.answer}</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                contentHTML += `
+                        </div>
+                    </div>
+                `;
+            }
+            
+            contentHTML += `</div>`;
+            contentDisplay.innerHTML = contentHTML;
+            
+            // 添加淡入动画
+            setTimeout(() => {
+                contentDisplay.querySelector('div').classList.add('fade-in');
+            }, 10);
+        }
+        
+        // 渲染打分面板
+        function renderScoringPanel() {
+            const item = dataset[currentItemIndex];
+            const result = results[currentItemIndex];
+            if (!item || !result) return;
+            
+            let panelHTML = `
+                <div class="space-y-6">
+                    <!-- 整体打分 -->
+                    <div class="bg-neutral-50 p-4 rounded-lg">
+                        <h3 class="text-neutral-700 font-medium mb-4">整体打分</h3>
+                        <div class="space-y-5">
+            `;
+            
+            // 整体打分标准
+            criteria.forEach(c => {
+                panelHTML += generateScoreInputHTML('overall', c, result.overallScores[c.id]);
+            });
+            
+            panelHTML += `
+                        </div>
+                    </div>
+            `;
+            
+            // 单轮对话打分
+            if (item.turns && item.turns.length > 0) {
+                item.turns.forEach((turn, turnIndex) => {
+                    panelHTML += `
+                        <div class="bg-neutral-50 p-4 rounded-lg">
+                            <h3 class="text-neutral-700 font-medium mb-2">轮次 ${turnIndex + 1} 打分</h3>
+                            <div class="text-xs text-neutral-500 mb-4">问题: ${turn.question.substring(0, 50)}${turn.question.length > 50 ? '...' : ''}</div>
+                            <div class="space-y-5">
+                    `;
+                    
+                    criteria.forEach(c => {
+                        panelHTML += generateScoreInputHTML(`turn-${turnIndex}`, c, result.turnScores[turnIndex]?.[c.id] ?? null);
+                    });
+                    
+                    panelHTML += `
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+            
+            panelHTML += `</div>`;
+            scoringPanel.innerHTML = panelHTML;
+            
+            // 添加事件监听器
+            setupScoreInputs();
+            
+            // 添加淡入动画
+            setTimeout(() => {
+                scoringPanel.querySelector('div').classList.add('fade-in');
+            }, 10);
+        }
+        
+        // 设置分数输入框的事件监听
+        function setupScoreInputs() {
+            // 为所有滑块添加事件监听
+            document.querySelectorAll('.slider').forEach(slider => {
+                slider.addEventListener('input', handleSliderChange);
+            });
+            
+            // 为所有单选按钮添加事件监听
+            document.querySelectorAll('input[type="radio"][name^="overall-radio-"], input[type="radio"][name^="turn-"]').forEach(radio => {
+                radio.addEventListener('change', handleRadioChange);
+            });
+        }
+        
+        // 处理滑块变化事件
+        function handleSliderChange(e) {
+            const slider = e.target;
+            const type = slider.dataset.type;
+            const criterionId = parseInt(slider.dataset.criterion);
+            let value = parseInt(slider.value);
+            
+            // 更新分数显示
+            const scoreDisplay = document.getElementById(`${type}-score-${criterionId}`);
+            scoreDisplay.textContent = value;
+            scoreDisplay.classList.add('score-change');
+            setTimeout(() => {
+                scoreDisplay.classList.remove('score-change');
+            }, 500);
+            
+            // 关键分数位置停顿效果 (-1和0)
+            const isKeyPosition = value === 0 || value === -1;
+            if (isKeyPosition && !slider.classList.contains('slider-pausing')) {
+                // 添加视觉提示
+                scoreDisplay.classList.add('key-score');
+                slider.classList.add('slider-pausing');
+                
+                // 记录当前值，防止在停顿期间被修改
+                const originalValue = value;
+                
+                // 禁用滑块
+                slider.disabled = true;
+                
+                // 停顿800毫秒
+                setTimeout(() => {
+                    // 恢复状态
+                    slider.disabled = false;
+                    slider.classList.remove('slider-pausing');
+                    scoreDisplay.classList.remove('key-score');
+                    
+                    // 确保值保持在关键位置
+                    slider.value = originalValue;
+                }, 800);
+            }
+        }
+        
+        // 处理单选按钮变化事件
+        function handleRadioChange(e) {
+            const radio = e.target;
+            const type = radio.dataset.type;
+            const criterionId = parseInt(radio.dataset.criterion);
+            const value = parseInt(radio.value);
+            
+            // 更新分数显示
+            const scoreDisplay = document.getElementById(`${type}-score-${criterionId}`);
+            scoreDisplay.textContent = value;
+            scoreDisplay.classList.add('score-change');
+            setTimeout(() => {
+                scoreDisplay.classList.remove('score-change');
+            }, 500);
+            
+            // 获取同一组的所有单选按钮
+            const radioGroup = document.querySelectorAll(`input[name="${radio.name}"]`);
+            
+            // 关键分数位置停顿效果 (-1和0)
+            const isKeyPosition = value === 0 || value === -1;
+            if (isKeyPosition) {
+                // 添加视觉提示
+                scoreDisplay.classList.add('key-score');
+                
+                // 禁用整个单选组
+                radioGroup.forEach(r => {
+                    r.disabled = true;
+                    r.parentElement.classList.add('radio-pausing');
+                });
+                
+                // 停顿800毫秒
+                setTimeout(() => {
+                    // 恢复状态
+                    radioGroup.forEach(r => {
+                        r.disabled = false;
+                        r.parentElement.classList.remove('radio-pausing');
+                    });
+                    scoreDisplay.classList.remove('key-score');
+                }, 800);
+            }
+            
+            // 更新UI显示哪个选项被选中
+            radioGroup.forEach(r => {
+                const label = r.parentElement;
+                if (r.checked) {
+                    label.classList.add('bg-primary', 'text-white');
+                    label.classList.remove('bg-danger/10', 'text-danger', 'border-danger/20', 'bg-neutral-100', 'text-neutral-700', 'border-neutral-200');
+                } else {
+                    if (r.value == -1) {
+                        label.classList.add('bg-danger/10', 'text-danger', 'border-danger/20');
+                        label.classList.remove('bg-primary', 'text-white', 'bg-neutral-100', 'text-neutral-700', 'border-neutral-200');
+                    } else {
+                        label.classList.add('bg-neutral-100', 'text-neutral-700', 'border-neutral-200');
+                        label.classList.remove('bg-primary', 'text-white', 'bg-danger/10', 'text-danger', 'border-danger/20');
+                    }
+                }
+            });
+        }
+        
+        // 生成打分输入HTML
+        function generateScoreInputHTML(prefix, criterion, value) {
+            let inputHTML = `
+                <div>
+                    <div class="flex justify-between items-center mb-2">
+                        <div>
+                            <div class="font-medium text-sm text-neutral-700">${criterion.name}</div>
+                            <div class="text-xs text-neutral-500">${criterion.description}</div>
+                        </div>
+                        <span id="${prefix}-score-${criterion.id}" class="text-sm font-medium px-2 py-1 rounded ${getScoreColorClass(value)}">
+                            ${value !== null ? value : '--'}
+                        </span>
+                    </div>
+                    <div class="space-y-2">
+            `;
+            
+            if (scoringMode === 'slider') {
+                // 滑块模式 - 设置初始值为50（中间位置）而不是-1
+                const initialValue = value !== null ? value : 50;
+                inputHTML += `
+                    <input 
+                        type="range" 
+                        min="-1" 
+                        max="100" 
+                        value="${initialValue}" 
+                        class="slider w-full" 
+                        data-type="${prefix}" 
+                        data-criterion="${criterion.id}"
+                        id="${prefix}-slider-${criterion.id}"
+                    >
+                    <div class="flex justify-between text-xs text-neutral-500">
+                        <span>-1 (有害)</span>
+                        <span>50</span>
+                        <span>100</span>
+                    </div>
+                `;
+            } else {
+                // 单选模式 - 不默认选中任何选项
+                const options = [-1, 0, 1, 2, 3];
+                inputHTML += `<div class="flex flex-wrap gap-2">`;
+                
+                options.forEach(option => {
+                    const isChecked = value === option;
+                    const labelClass = `px-3 py-1.5 rounded-full text-sm cursor-pointer transition-all-300 ${
+                        isChecked 
+                            ? 'bg-primary text-white' 
+                            : option === -1 
+                                ? 'bg-danger/10 text-danger border border-danger/20' 
+                                : 'bg-neutral-100 text-neutral-700 border border-neutral-200'
+                    }`;
+                    
+                    inputHTML += `
+                        <label class="${labelClass}" for="${prefix}-radio-${criterion.id}-${option}">
+                            <input 
+                                type="radio" 
+                                name="${prefix}-radio-${criterion.id}" 
+                                value="${option}" 
+                                id="${prefix}-radio-${criterion.id}-${option}"
+                                data-type="${prefix}" 
+                                data-criterion="${criterion.id}"
+                                class="hidden"
+                                ${isChecked ? 'checked' : ''}
+                            >
+                            ${option === -1 ? `${option} (有害)` : option}
+                        </label>
+                    `;
+                });
+                
+                inputHTML += `</div>`;
+            }
+            
+            inputHTML += `
+                    </div>
+                </div>
+            `;
+            
+            return inputHTML;
+        }
+        
+        // 获取分数对应的颜色类
+        function getScoreColorClass(score) {
+            if (score === null) return 'text-neutral-400 bg-neutral-100';
+            if (score === -1) return 'text-danger bg-danger/10';
+            if (score === 0) return 'text-neutral-500 bg-neutral-200';
+            if (score <= 50) return 'text-warning bg-warning/10';
+            return 'text-success bg-success/10';
+        }
+        
+        // 切换打分模式
+        function toggleScoringMode() {
+            scoringMode = scoringMode === 'slider' ? 'radio' : 'slider';
+            currentScoringMode.textContent = scoringMode === 'slider' ? '无极分数' : '单选分数';
+            renderScoringPanel();
+            showNotification('提示', `已切换到${scoringMode === 'slider' ? '无极分数' : '单选分数'}模式`, 'info');
+        }
+        
+        // 保存打分结果
+        function saveScores() {
+            if (currentItemIndex < 0 || currentItemIndex >= results.length) return;
+            
+            const result = results[currentItemIndex];
+            const item = dataset[currentItemIndex];
+            
+            // 保存整体打分
+            criteria.forEach(c => {
+                if (scoringMode === 'slider') {
+                    const slider = document.getElementById(`overall-slider-${c.id}`);
+                    result.overallScores[c.id] = parseInt(slider.value);
+                } else {
+                    const radio = document.querySelector(`input[name="overall-radio-${c.id}"]:checked`);
+                    result.overallScores[c.id] = radio ? parseInt(radio.value) : null;
+                }
+            });
+            
+            // 保存单轮打分
+            if (item.turns && item.turns.length > 0) {
+                item.turns.forEach((turn, turnIndex) => {
+                    criteria.forEach(c => {
+                        if (scoringMode === 'slider') {
+                            const slider = document.getElementById(`turn-${turnIndex}-slider-${c.id}`);
+                            result.turnScores[turnIndex][c.id] = parseInt(slider.value);
+                        } else {
+                            const radio = document.querySelector(`input[name="turn-${turnIndex}-radio-${c.id}"]:checked`);
+                            result.turnScores[turnIndex][c.id] = radio ? parseInt(radio.value) : null;
+                        }
+                    });
+                });
+            }
+            
+            // 检查是否所有分数都已填写
+            let allScoresCompleted = true;
+            
+            // 检查整体打分
+            for (const c of criteria) {
+                if (result.overallScores[c.id] === null) {
+                    allScoresCompleted = false;
+                    break;
+                }
+            }
+            
+            // 检查单轮打分
+            if (allScoresCompleted && item.turns && item.turns.length > 0) {
+                for (const turnScores of result.turnScores) {
+                    for (const c of criteria) {
+                        if (turnScores[c.id] === null) {
+                            allScoresCompleted = false;
+                            break;
+                        }
+                    }
+                    if (!allScoresCompleted) break;
+                }
+            }
+            
+            result.completed = allScoresCompleted;
+            
+            // 更新UI
+            renderItemsList();
+            updateDatasetStats();
+            updateItemInfo();
+            
+            showNotification('成功', `打分已保存${allScoresCompleted ? '，此数据项已完成' : ''}`, 'success');
+        }
+        
+        // 更新导航按钮状态
+        function updateNavigationButtons() {
+            prevItemBtn.disabled = currentItemIndex <= 0;
+            nextItemBtn.disabled = currentItemIndex >= dataset.length - 1;
+        }
+        
+        // 更新当前项信息
+        function updateItemInfo() {
+            if (currentItemIndex < 0 || currentItemIndex >= dataset.length) {
+                currentItemInfo.textContent = '未选择数据';
+                itemProgress.classList.add('hidden');
+                return;
+            }
+            
+            const item = dataset[currentItemIndex];
+            const result = results[currentItemIndex];
+            
+            currentItemInfo.textContent = `数据项 ${currentItemIndex + 1} / ${dataset.length}`;
+            itemProgress.classList.remove('hidden');
+            
+            // 计算完成度
+            let totalFields = criteria.length; // 整体打分项
+            if (item.turns && item.turns.length > 0) {
+                totalFields += item.turns.length * criteria.length; // 加上单轮打分项
+            }
+            
+            let completedFields = 0;
+            // 整体打分完成数
+            for (const c of criteria) {
+                if (result.overallScores[c.id] !== null) completedFields++;
+            }
+            
+            // 单轮打分完成数
+            if (item.turns && item.turns.length > 0) {
+                for (const turnScores of result.turnScores) {
+                    for (const c of criteria) {
+                        if (turnScores[c.id] !== null) completedFields++;
+                    }
+                }
+            }
+            
+            const progress = Math.round((completedFields / totalFields) * 100);
+            progressPercent.textContent = `${progress}%`;
+        }
+        
+        // 更新数据集统计
+        function updateDatasetStats() {
+            if (results.length === 0) return;
+            
+            totalItems.textContent = results.length;
+            
+            let completed = 0;
+            let inProgress = 0;
+            
+            results.forEach(result => {
+                if (result.completed) {
+                    completed++;
+                } else {
+                    // 检查是否有任何分数已填写
+                    let hasScores = false;
+                    for (const c of criteria) {
+                        if (result.overallScores[c.id] !== null) {
+                            hasScores = true;
+                            break;
+                        }
+                    }
+                    
+                    if (!hasScores && result.turnScores.length > 0) {
+                        for (const turnScores of result.turnScores) {
+                            for (const c of criteria) {
+                                if (turnScores[c.id] !== null) {
+                                    hasScores = true;
+                                    break;
+                                }
+                            }
+                            if (hasScores) break;
+                        }
+                    }
+                    
+                    if (hasScores) inProgress++;
+                }
+            });
+            
+            completedItems.textContent = completed;
+            inProgressItems.textContent = inProgress;
+            pendingItems.textContent = results.length - completed - inProgress;
+        }
+        
+        // 上一个数据项
+        function goToPreviousItem() {
+            if (currentItemIndex > 0) {
+                selectItem(currentItemIndex - 1);
+            }
+        }
+        
+        // 下一个数据项
+        function goToNextItem() {
+            if (currentItemIndex < dataset.length - 1) {
+                selectItem(currentItemIndex + 1);
+            }
+        }
+        
+        // 打开导出模态框
+        function openExportModal() {
+            if (dataset.length === 0) {
+                showNotification('提示', '请先加载数据', 'info');
+                return;
+            }
+            
+            exportModal.classList.remove('hidden');
+            setTimeout(() => {
+                exportModal.classList.add('opacity-100');
+                exportModal.querySelector('div').classList.add('scale-100');
+            }, 10);
+        }
+        
+        // 关闭导出模态框
+        function closeExportModal() {
+            exportModal.classList.remove('opacity-100');
+            exportModal.querySelector('div').classList.remove('scale-100');
+            setTimeout(() => {
+                exportModal.classList.add('hidden');
+            }, 300);
+        }
+        
+        // 导出所有数据
+        function exportAllData() {
+            exportData(dataset.map((item, index) => ({
+                ...item,
+                scores: results[index]
+            })));
+            closeExportModal();
+        }
+        
+        // 导出已完成数据
+        function exportCompletedData() {
+            const completedData = dataset
+                .map((item, index) => ({
+                    ...item,
+                    scores: results[index]
+                }))
+                .filter((_, index) => results[index].completed);
+                
+            if (completedData.length === 0) {
+                showNotification('提示', '没有已完成的数据可导出', 'info');
+                return;
+            }
+            
+            exportData(completedData);
+            closeExportModal();
+        }
+        
+        // 导出数据通用函数
+        function exportData(data) {
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `rlhf_scores_${new Date().toISOString().slice(0, 10)}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            showNotification('成功', '数据已导出为JSON文件', 'success');
+        }
+        
+        // 打开可视化模态框
+        function openVisualizationModal() {
+            if (results.length === 0) {
+                showNotification('提示', '请先加载数据', 'info');
+                return;
+            }
+            
+            // 更新图表数据
+            updateCharts();
+            
+            visualizationModal.classList.remove('hidden');
+            setTimeout(() => {
+                visualizationModal.classList.add('opacity-100');
+                visualizationModal.querySelector('div').classList.add('scale-100');
+            }, 10);
+        }
+        
+        // 关闭可视化模态框
+        function closeVisualizationModal() {
+            visualizationModal.classList.remove('opacity-100');
+            visualizationModal.querySelector('div').classList.remove('scale-100');
+            setTimeout(() => {
+                visualizationModal.classList.add('hidden');
+            }, 300);
+        }
+        
+        // 更新图表数据
+        function updateCharts() {
+            // 完成情况分布图表
+            const completed = results.filter(r => r.completed).length;
+            const inProgress = results.filter(r => !r.completed && 
+                (Object.values(r.overallScores).some(v => v !== null) || 
+                 r.turnScores.some(ts => Object.values(ts).some(v => v !== null)))).length;
+            const pending = results.length - completed - inProgress;
+            
+            if (completionChart) {
+                completionChart.destroy();
+            }
+            
+            completionChart = new Chart(document.getElementById('completionChart'), {
+                type: 'doughnut',
+                data: {
+                    labels: ['已完成', '进行中', '未开始'],
+                    datasets: [{
+                        data: [completed, inProgress, pending],
+                        backgroundColor: ['#00B42A', '#FF7D00', '#86909C'],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+            
+            // 分数分布图表
+            const scoreRanges = {
+                '-1': 0,
+                '0': 0,
+                '1-50': 0,
+                '51-100': 0
+            };
+            
+            results.forEach(result => {
+                // 只统计整体打分的第一个标准作为代表
+                const score = result.overallScores[1];
+                if (score === null) return;
+                
+                if (score === -1) {
+                    scoreRanges['-1']++;
+                } else if (score === 0) {
+                    scoreRanges['0']++;
+                } else if (score <= 50) {
+                    scoreRanges['1-50']++;
+                } else {
+                    scoreRanges['51-100']++;
+                }
+            });
+            
+            if (scoresDistributionChart) {
+                scoresDistributionChart.destroy();
+            }
+            
+            scoresDistributionChart = new Chart(document.getElementById('scoresDistributionChart'), {
+                type: 'bar',
+                data: {
+                    labels: Object.keys(scoreRanges),
+                    datasets: [{
+                        label: '分数分布',
+                        data: Object.values(scoreRanges),
+                        backgroundColor: [
+                            '#F53F3F',
+                            '#86909C',
+                            '#FF7D00',
+                            '#00B42A'
+                        ],
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                precision: 0
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // 各评判标准平均分图表
+            const criteriaAverages = {};
+            
+            criteria.forEach(c => {
+                let total = 0;
+                let count = 0;
+                
+                results.forEach(result => {
+                    const score = result.overallScores[c.id];
+                    if (score !== null && score !== -1) { // 排除有害评分
+                        total += score;
+                        count++;
+                    }
+                });
+                
+                criteriaAverages[c.id] = count > 0 ? (total / count).toFixed(1) : 0;
+            });
+            
+            if (criteriaScoresChart) {
+                criteriaScoresChart.destroy();
+            }
+            
+            criteriaScoresChart = new Chart(document.getElementById('criteriaScoresChart'), {
+                type: 'bar',
+                data: {
+                    labels: criteria.map(c => c.name),
+                    datasets: [{
+                        label: '平均分数',
+                        data: criteria.map(c => criteriaAverages[c.id]),
+                        backgroundColor: '#165DFF',
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            title: {
+                                display: true,
+                                text: '平均分'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        // 导出报告
+        function exportReport() {
+            showNotification('提示', '报告导出功能即将上线', 'info');
+            // 实际项目中可以使用jsPDF等库生成PDF报告
+        }
+        
+        // 打开帮助模态框
+        function openHelpModal() {
+            helpModal.classList.remove('hidden');
+            setTimeout(() => {
+                helpModal.classList.add('opacity-100');
+                helpModal.querySelector('div').classList.add('scale-100');
+            }, 10);
+        }
+        
+        // 关闭帮助模态框
+        function closeHelpModal() {
+            helpModal.classList.remove('opacity-100');
+            helpModal.querySelector('div').classList.remove('scale-100');
+            setTimeout(() => {
+                helpModal.classList.add('hidden');
+            }, 300);
+        }
+        
+        // 显示通知
+        function showNotification(title, message, type = 'info') {
+            notificationTitle.textContent = title;
+            notificationMessage.textContent = message;
+            
+            // 设置图标和颜色
+            if (type === 'success') {
+                notificationIcon.className = 'fa fa-check-circle text-success text-xl mr-3';
+            } else if (type === 'error') {
+                notificationIcon.className = 'fa fa-exclamation-circle text-danger text-xl mr-3';
+            } else if (type === 'warning') {
+                notificationIcon.className = 'fa fa-exclamation-triangle text-warning text-xl mr-3';
+            } else {
+                notificationIcon.className = 'fa fa-info-circle text-primary text-xl mr-3';
+            }
+            
+            // 显示通知
+            notification.classList.remove('translate-y-20', 'opacity-0');
+            
+            // 3秒后自动隐藏
+            setTimeout(hideNotification, 3000);
+        }
+        
+        // 隐藏通知
+        function hideNotification() {
+            notification.classList.add('translate-y-20', 'opacity-0');
+        }
+        
+        // 初始化页面
+        function initialize() {
+            datasetStatus.classList.remove('hidden');
+            datasetStats.classList.add('hidden');
+        }
+        
+        // 启动应用
+        initialize();
+    </script>
+</body>
+</html>
