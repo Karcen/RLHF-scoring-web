@@ -3,6 +3,9 @@
 A lightweight scoring and visualization web application for dataset annotation.  
 一个轻量级的网页打分与可视化工具，用于数据集标注与人工评价。  
 
+![Uploading d0156f9d7b16412b814b341099f7cd07.png…]()
+
+
 ## ✨ Features / 功能特点
 - **Two scoring modes / 两种打分方式**  
   - Continuous scoring (无极打分): supports fine-grained scores. Negative scores (-1) are specially handled as "harmful" labels, with a barrier between 0 and -1 to prevent misclicks.  
