@@ -3,7 +3,8 @@
 A lightweight scoring and visualization web application for dataset annotation.  
 一个轻量级的网页打分与可视化工具，用于数据集标注与人工评价。  
 
-![Uploading d0156f9d7b16412b814b341099f7cd07.png…]()
+<img width="1920" height="892" alt="d0156f9d7b16412b814b341099f7cd07" src="https://github.com/user-attachments/assets/b2599477-9da6-42fa-9173-b71feb733a29" />
+
 
 
 ## ✨ Features / 功能特点
